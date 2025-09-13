@@ -1,5 +1,6 @@
 # UKF Run Functions - U: The Mind Company
 # Interactive analysis functions for UKF visualizations
+# Updated title of folder for GitHub 
 
 import os
 from ukf_data_processing import (
