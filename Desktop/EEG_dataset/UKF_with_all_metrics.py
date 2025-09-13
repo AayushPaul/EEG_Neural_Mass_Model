@@ -6,7 +6,7 @@ from scipy.integrate import odeint
 from scipy.signal import welch
 from scipy.stats import pearsonr, entropy
 from sklearn.metrics import mean_squared_error
-import Input_signal_construction as input
+import analysis.Input_signal_construction as input
 from scipy.signal import butter, filtfilt
 
 np.random.seed(42)  # For reproducibility
