@@ -1,6 +1,5 @@
 # UKF Run Functions - U: The Mind Company
 # Interactive analysis functions for UKF visualizations
-# Updated title of folder for GitHub 
 
 import os
 from ukf_data_processing import (
@@ -85,22 +84,31 @@ def run_ukf_single_channel_dashboard():
     if channel is None:
         return
     
-    print(f"\nProcessing UKF single channel dashboard for channel {channel}...")
+    # Get frequency band input to match channel comparison approach
+    band_name, freq_range = get_band_input()
+    if band_name is None:
+        return
     
-    # Process full spectrum data (no band filtering for comprehensive single channel analysis)
-    filtered_data = apply_ukf_filtering(real_data)
+    print(f"\nProcessing UKF single channel dashboard for channel {channel}...")
+    print(f"Using band: {band_name} ({freq_range[0]}-{freq_range[1]} Hz)")
+    
+    # Apply band filtering first (like in channel comparison), then UKF filtering
+    real_band_data = apply_band_filtering(real_data, band_name, freq_range)
+    filtered_data = apply_ukf_filtering(real_data, band_name, freq_range)
     
     # Create filename
     csv_name = os.path.basename(csv_path).replace('.csv', '')
-    save_path = f'U_UKF_single_channel_{channel}_{csv_name}_dashboard.png'
+    clean_band_name = band_name.replace(' ', '_').replace('(', '').replace(')', '').replace('–', '-')
+    save_path = f'U_UKF_single_channel_{channel}_{clean_band_name}_{csv_name}_dashboard.png'
     
-    # Generate single channel dashboard
+    # Generate single channel dashboard using the band-filtered data
     results = create_ukf_single_channel_dashboard(
-        real_data, filtered_data, channel, csv_name, save_path, logo_path="U_logo.png"
+        real_band_data, filtered_data, channel, csv_name, save_path, logo_path="U_logo.png"
     )
     
     print(f"\nUKF SINGLE CHANNEL DASHBOARD COMPLETE!")
     print(f"Dataset: {csv_name}")
+    print(f"Band: {band_name}")
     print(f"Channel: {channel}")
     print(f"Correlation: {results['correlation']:.1f}%")
     print(f"Spectral Similarity: {results['spectral_similarity']:.1f}%")
@@ -130,19 +138,26 @@ def run_ukf_multi_channel_dashboard():
     if channel_range is None:
         return
     
-    print(f"\nProcessing UKF multi-channel dashboard for channels {channel_range[0]}-{channel_range[1]}...")
-    
-    # Process full spectrum data (no band filtering for multi-channel dashboard)
+    # Get frequency band input - CRITICAL: Must have band selection
     band_name, freq_range = get_band_input()
+    if band_name is None:
+        return
+    
+    print(f"\nProcessing UKF multi-channel dashboard for channels {channel_range[0]}-{channel_range[1]}...")
+    print(f"Using band: {band_name} ({freq_range[0]}-{freq_range[1]} Hz)")
+    
+    # CRITICAL FIX: Apply band filtering to BOTH datasets like channel comparison
+    real_band_data = apply_band_filtering(real_data, band_name, freq_range)
     filtered_data = apply_ukf_filtering(real_data, band_name, freq_range)
     
     # Create filename
-    csv_name = csv_path
-    save_path = f'U_UKF_multi_channel_{channel_range[0]}-{channel_range[1]}_{csv_name}_dashboard.png'
+    csv_name = os.path.basename(csv_path).replace('.csv', '')
+    clean_band_name = band_name.replace(' ', '_').replace('(', '').replace(')', '').replace('â€"', '-')
+    save_path = f'U_UKF_multi_channel_{channel_range[0]}-{channel_range[1]}_{clean_band_name}_{csv_name}_dashboard.png'
     
-    # Generate multi-channel dashboard
+    # CRITICAL FIX: Pass BAND-FILTERED data to dashboard AND band_name parameter
     results = create_ukf_multi_channel_dashboard(
-        real_data, filtered_data, csv_name, channel_range, save_path, logo_path="U_logo.png"
+        real_band_data, filtered_data, csv_name, channel_range, save_path, logo_path="U_logo.png", band_name=band_name
     )
     
     print(f"\nUKF MULTI-CHANNEL DASHBOARD COMPLETE!")
@@ -251,6 +266,39 @@ def run_ukf_multi_channel_comparison():
     
 #     return results
 
+def run_ukf_single_band_infographic():
+    """Interactive single band UKF infographic generator"""
+    print("\n" + "="*80)
+    print("U: THE MIND COMPANY - UKF SINGLE BAND INFOGRAPHIC")
+    print("19-Channel Average Similarity Analysis")
+    print("="*80)
+    
+    # Get CSV input
+    csv_path, real_data, columns = get_csv_input()
+    if real_data is None:
+        return
+    
+    # Get frequency band input
+    band_name, freq_range = get_band_input()
+    if band_name is None:
+        return
+    
+    print(f"\nProcessing UKF infographic for {band_name}...")
+    print(f"Frequency range: {freq_range[0]}-{freq_range[1]} Hz")
+    print(f"Analyzing up to 19 channels from {csv_path}")
+    
+    # Import the infographic function
+    from ukf_infographic_visualizations import generate_single_band_infographic
+    
+    # Generate the infographic
+    results = generate_single_band_infographic(csv_path, band_name, freq_range)
+    
+    if results:
+        return results
+    else:
+        print("Failed to generate infographic")
+        return None
+    
 def main_ukf_visualization_suite():
     """Main function to run UKF visualization suite"""
     
@@ -267,7 +315,7 @@ def main_ukf_visualization_suite():
             print("2. Single Channel Dashboard")
             print("3. Multi-Channel Dashboard")
             print("4. Multi-Channel Comparison")
-            print("5. Comprehensive Analysis")
+            print("5. Infographic Visualization")
             print("6. Exit")
             print("\nFREQUENCY BANDS SUPPORTED:")
             print("   • Delta (0.5–4 Hz)")
@@ -288,11 +336,13 @@ def main_ukf_visualization_suite():
             elif choice == '4':
                 run_ukf_multi_channel_comparison()
             elif choice == '5':
+                run_ukf_single_band_infographic()
+            elif choice == '6':
                 print("\nExiting UKF Visualization Suite")
                 print("U: The Mind Company | Advancing Neurostimulation Technology")
                 break
             else:
-                print("Invalid choice. Please select 1-5.")
+                print("Invalid choice. Please select 1-6.")
                 
         except KeyboardInterrupt:
             print("\n\nExiting UKF Visualization Suite")

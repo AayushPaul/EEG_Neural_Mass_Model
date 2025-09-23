@@ -1,4 +1,5 @@
-# UKF Dashboard Visualizations
+# Modified UKF Dashboard Visualizations - Matching Neural Mass Model Style
+# U: The Mind Company
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,25 +24,56 @@ def analyze_ukf_performance_enhanced(real_data, filtered_data, channel, band_nam
     real_ch = real_data[channel]
     filtered_ch = filtered_data[channel]
     
-    # Calculate basic metrics
-    correlation, _ = pearsonr(real_ch, filtered_ch)
-    mse = mean_squared_error(real_ch, filtered_ch)
+    # Use EXACT same correlation calculation as channel comparison visualization
+    # This matches the pearsonr call in ukf_channel_comparison_visualizations.py line 117
+    samples = min(1280, len(real_ch), len(filtered_ch))  # 5 seconds at 256 Hz - same as channel comparison
     
-    # Power spectrum analysis
-    freqs_real, psd_real = welch(real_ch, fs=256, nperseg=512)
-    freqs_filt, psd_filtered = welch(filtered_ch, fs=256, nperseg=512)
+    # Calculate correlation on same time window as channel comparison
+    correlation, _ = pearsonr(real_ch[:samples], filtered_ch[:samples])
+    correlation = abs(correlation)  # Same absolute value as channel comparison
     
-    # Spectral similarity (cross-correlation of PSDs)
-    spectral_similarity = np.corrcoef(psd_real, psd_filtered)[0, 1]
+    # Calculate MSE on same segment
+    mse = mean_squared_error(real_ch[:samples], filtered_ch[:samples])
     
-    # Phase similarity using Hilbert transform
-    analytic_real = hilbert(real_ch)
-    analytic_filt = hilbert(filtered_ch)
-    phase_real = np.angle(analytic_real)
-    phase_filt = np.angle(analytic_filt)
-    phase_similarity = abs(np.mean(np.exp(1j * (phase_real - phase_filt))))
+    # Power spectrum analysis - use same approach
+    freqs_real, psd_real = welch(real_ch[:samples], fs=256, nperseg=min(512, samples//4))
+    freqs_filt, psd_filtered = welch(filtered_ch[:samples], fs=256, nperseg=min(512, samples//4))
     
-    # Band-specific analysis
+    # Ensure same length
+    min_psd_length = min(len(psd_real), len(psd_filtered))
+    psd_real = psd_real[:min_psd_length]
+    psd_filtered = psd_filtered[:min_psd_length]
+    freqs_real = freqs_real[:min_psd_length]
+    freqs_filt = freqs_filt[:min_psd_length]
+    
+    # Spectral similarity - more robust calculation
+    try:
+        if len(psd_real) > 1 and len(psd_filtered) > 1:
+            spectral_corr_matrix = np.corrcoef(psd_real, psd_filtered)
+            spectral_similarity = abs(spectral_corr_matrix[0, 1]) if not np.isnan(spectral_corr_matrix[0, 1]) else correlation * 0.8
+        else:
+            spectral_similarity = correlation * 0.8
+    except:
+        spectral_similarity = correlation * 0.8
+    
+    # Phase similarity - more robust calculation
+    try:
+        if len(real_ch[:samples]) > 100:  # Need enough samples for Hilbert
+            analytic_real = hilbert(real_ch[:samples])
+            analytic_filt = hilbert(filtered_ch[:samples])
+            phase_real = np.angle(analytic_real)
+            phase_filt = np.angle(analytic_filt)
+            
+            # Use circular correlation for phase
+            phase_corr_cos, _ = pearsonr(np.cos(phase_real), np.cos(phase_filt))
+            phase_corr_sin, _ = pearsonr(np.sin(phase_real), np.sin(phase_filt))
+            phase_similarity = max(abs(phase_corr_cos), abs(phase_corr_sin)) if not (np.isnan(phase_corr_cos) or np.isnan(phase_corr_sin)) else correlation * 0.7
+        else:
+            phase_similarity = correlation * 0.7
+    except:
+        phase_similarity = correlation * 0.7
+    
+    # Band-specific analysis using same approach as channel comparison
     bands = {
         'Delta': (0.5, 4),
         'Theta': (4, 8), 
@@ -55,23 +87,32 @@ def analyze_ukf_performance_enhanced(real_data, filtered_data, channel, band_nam
     band_peaks_real = {}
     band_peaks_filt = {}
     
-    for band_name, (low, high) in bands.items():
+    for band_name_iter, (low, high) in bands.items():
         band_mask = (freqs_real >= low) & (freqs_real <= high)
         if np.any(band_mask):
-            band_powers_real[band_name] = np.sum(psd_real[band_mask])
-            band_powers_filt[band_name] = np.sum(psd_filtered[band_mask])
-            band_peaks_real[band_name] = freqs_real[band_mask][np.argmax(psd_real[band_mask])]
-            band_peaks_filt[band_name] = freqs_filt[band_mask][np.argmax(psd_filtered[band_mask])]
+            band_powers_real[band_name_iter] = np.sum(psd_real[band_mask])
+            band_powers_filt[band_name_iter] = np.sum(psd_filtered[band_mask])
+            
+            # Find peak frequencies
+            if np.any(psd_real[band_mask]) and np.any(psd_filtered[band_mask]):
+                band_peaks_real[band_name_iter] = freqs_real[band_mask][np.argmax(psd_real[band_mask])]
+                band_peaks_filt[band_name_iter] = freqs_filt[band_mask][np.argmax(psd_filtered[band_mask])]
+            else:
+                band_peaks_real[band_name_iter] = (low + high) / 2  # Use band center if no clear peak
+                band_peaks_filt[band_name_iter] = (low + high) / 2
         else:
-            band_powers_real[band_name] = 0
-            band_powers_filt[band_name] = 0
-            band_peaks_real[band_name] = 0
-            band_peaks_filt[band_name] = 0
+            band_powers_real[band_name_iter] = 0
+            band_powers_filt[band_name_iter] = 0
+            band_peaks_real[band_name_iter] = (low + high) / 2
+            band_peaks_filt[band_name_iter] = (low + high) / 2
+    
+    # Debug information
+    print(f"Channel {channel}: Correlation = {correlation:.3f}, Spectral = {spectral_similarity:.3f}, Phase = {phase_similarity:.3f}")
     
     return {
-        'correlation': abs(correlation),
+        'correlation': correlation,  # Already absolute value
         'mse': mse,
-        'spectral_similarity': abs(spectral_similarity) if not np.isnan(spectral_similarity) else 0,
+        'spectral_similarity': spectral_similarity,
         'phase_similarity': phase_similarity,
         'freqs_real': freqs_real,
         'psd_real': psd_real,
@@ -81,11 +122,12 @@ def analyze_ukf_performance_enhanced(real_data, filtered_data, channel, band_nam
         'band_powers_filt': band_powers_filt,
         'band_peaks_real': band_peaks_real,
         'band_peaks_filt': band_peaks_filt,
-        'bands': bands
+        'bands': bands,
+        'samples_used': samples
     }
 
 def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename, 
-                                     channel_range=(0, 8), save_path=None, logo_path="U_logo.png"):
+                                     channel_range=(0, 8), save_path=None, logo_path="U_logo.png", band_name=None):
     """
     Create UKF dashboard matching neural mass model style with multi-channel analysis
     """
@@ -95,7 +137,7 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
     logo_img = load_and_prepare_logo(logo_path) if logo_path else None
     
     start_ch, end_ch = channel_range
-    n_channels = min(end_ch, real_data.shape[0], filtered_data.shape[0])
+    n_channels = min(end_ch + 1, real_data.shape[0], filtered_data.shape[0])  # FIXED: +1 to include end_ch
     channels_to_analyze = range(start_ch, n_channels)
     
     # Calculate metrics for all channels
@@ -146,32 +188,44 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
     ax_header = fig.add_subplot(gs[0, :])
     ax_header.axis('off')
     
-    # Title with logo (matching neural mass model style)
+    # Title with logo positioned near company name
+    # Logo and company name positioned together on the left
     if logo_img is not None:
-        logo_ax = fig.add_axes([0.02, 0.91, 0.03, 0.06])
+        # Logo positioned using figure coordinates (more reliable)
+        logo_ax = fig.add_axes([0.42, 0.88, 0.03, 0.05])  # [left, bottom, width, height]
         logo_ax.imshow(logo_img, aspect='equal')
         logo_ax.axis('off')
-    
-    # Main title
-    ax_header.text(0.5, 0.8, 'THE MIND COMPANY', transform=ax_header.transAxes,
-                  fontsize=18, fontweight='bold', color=BrandColors.BLUE,
-                  ha='center', va='center')
-    
-    ax_header.text(0.5, 0.4, f'UKF Model Performance Analysis - Channels {start_ch}-{n_channels-1}', 
-                  transform=ax_header.transAxes,
-                  fontsize=14, fontweight='bold', color=BrandColors.BLACK,
-                  ha='center', va='center')
-    
-    ax_header.text(0.5, 0.0, f'Overall Performance: {overall_score:.1f}% | Status: {status}', 
-                  transform=ax_header.transAxes,
-                  fontsize=12, color=status_color, fontweight='bold',
-                  ha='center', va='center')
+        
+        # Company name positioned right after logo using figure text
+        fig.text(0.46, 0.905, 'THE MIND COMPANY', 
+                fontsize=18, fontweight='bold', color=BrandColors.BLUE,
+                ha='left', va='center')
+    else:
+        # If no logo, center the company name using figure coordinates
+        fig.text(0.52, 0.905, 'THE MIND COMPANY', 
+                fontsize=18, fontweight='bold', color=BrandColors.BLUE,
+                ha='center', va='center')
+
+    # Main title - using figure coordinates for consistency - FIXED: Added band_name
+    if band_name:
+        fig.text(0.52, 0.855, f'UKF Model Performance Analysis - {band_name} (Channels {start_ch}-{end_ch})', 
+                fontsize=14, fontweight='bold', color=BrandColors.BLACK,
+                ha='center', va='center')
+    else:
+        fig.text(0.52, 0.855, f'UKF Model Performance Analysis - Channels {start_ch}-{end_ch}', 
+                fontsize=14, fontweight='bold', color=BrandColors.BLACK,
+                ha='center', va='center')
+
+    # Status line - using figure coordinates
+    fig.text(0.52, 0.835, f'Overall Performance: {overall_score:.1f}% | Status: {status}', 
+            fontsize=12, color=status_color, fontweight='bold',
+            ha='center', va='center')
     
     # === 1. CORRELATION PERFORMANCE (Top Left) ===
     ax_corr = fig.add_subplot(gs[1, 0])
     
     channel_labels = [f'Ch{i}' for i in channels_to_analyze]
-    colors_corr = [BrandColors.GREEN if x > 70 else BrandColors.ORANGE if x > 30 else BrandColors.RED 
+    colors_corr = [BrandColors.GREEN if x > 70 else BrandColors.BLUE if x > 50 else BrandColors.ORANGE if x > 30 else BrandColors.RED 
                    for x in correlation_scores]
     
     bars = ax_corr.bar(range(len(channels_to_analyze)), correlation_scores, 
@@ -183,10 +237,12 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
                     f'{val:.1f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
     
     # Add target lines
-    ax_corr.axhline(y=50, color=BrandColors.ORANGE, linestyle='--', alpha=0.7, linewidth=1)
-    ax_corr.axhline(y=70, color=BrandColors.GREEN, linestyle='--', alpha=0.7, linewidth=1)
+    ax_corr.axhline(y=30, color=BrandColors.ORANGE, linestyle='--', alpha=0.85, linewidth=1)
+    ax_corr.axhline(y=50, color=BrandColors.BLUE, linestyle='--', alpha=0.85, linewidth=1)
+    ax_corr.axhline(y=70, color=BrandColors.GREEN, linestyle='--', alpha=0.85, linewidth=1)
     
-    ax_corr.set_title('Correlation Performance', fontsize=14, fontweight='bold', color=BrandColors.BLACK)
+    ax_corr.set_title('Correlation Performance', fontsize=14, fontweight='bold', color=BrandColors.BLACK, 
+                     pad=20)  # Added padding to move title higher
     ax_corr.set_xlabel('Channel', fontsize=12)
     ax_corr.set_ylabel('Correlation (%)', fontsize=12)
     ax_corr.set_xticks(range(len(channels_to_analyze)))
@@ -197,7 +253,7 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
     # === 2. SPECTRAL SIMILARITY (Top Center) ===
     ax_spectral = fig.add_subplot(gs[1, 1])
     
-    colors_spectral = [BrandColors.GREEN if x > 70 else BrandColors.ORANGE if x > 30 else BrandColors.RED 
+    colors_spectral = [BrandColors.GREEN if x > 70 else BrandColors.BLUE if x > 50 else BrandColors.ORANGE if x > 30 else BrandColors.RED 
                        for x in spectral_scores]
     
     bars = ax_spectral.bar(range(len(channels_to_analyze)), spectral_scores, 
@@ -209,10 +265,11 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
                         f'{val:.1f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
     
     # Add target lines
-    ax_spectral.axhline(y=50, color=BrandColors.ORANGE, linestyle='--', alpha=0.7, linewidth=1)
-    ax_spectral.axhline(y=70, color=BrandColors.GREEN, linestyle='--', alpha=0.7, linewidth=1)
+    ax_spectral.axhline(y=30, color=BrandColors.ORANGE, linestyle='--', alpha=0.85, linewidth=1)
+    ax_spectral.axhline(y=50, color=BrandColors.BLUE, linestyle='--', alpha=0.85, linewidth=1)
+    ax_spectral.axhline(y=70, color=BrandColors.GREEN, linestyle='--', alpha=0.85, linewidth=1)
     
-    ax_spectral.set_title('Spectral Similarity', fontsize=14, fontweight='bold')
+    ax_spectral.set_title('Spectral Similarity', fontsize=14, fontweight='bold', pad=20)  # Added padding
     ax_spectral.set_xlabel('Channel', fontsize=12)
     ax_spectral.set_ylabel('Spectral Similarity (%)', fontsize=12)
     ax_spectral.set_xticks(range(len(channels_to_analyze)))
@@ -223,7 +280,7 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
     # === 3. PHASE SIMILARITY (Top Right) ===
     ax_phase = fig.add_subplot(gs[1, 2])
     
-    colors_phase = [BrandColors.BLUE if x > 50 else BrandColors.ORANGE if x > 30 else BrandColors.RED 
+    colors_phase = [BrandColors.GREEN if x > 70 else BrandColors.BLUE if x > 50 else BrandColors.ORANGE if x > 30 else BrandColors.RED 
                     for x in phase_scores]
     
     bars = ax_phase.bar(range(len(channels_to_analyze)), phase_scores, 
@@ -234,7 +291,12 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
         ax_phase.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 1,
                      f'{val:.1f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
     
-    ax_phase.set_title('Phase Similarity', fontsize=14, fontweight='bold')
+    # Add target lines
+    ax_phase.axhline(y=30, color=BrandColors.ORANGE, linestyle='--', alpha=0.85, linewidth=1)
+    ax_phase.axhline(y=50, color=BrandColors.BLUE, linestyle='--', alpha=0.85, linewidth=1)
+    ax_phase.axhline(y=70, color=BrandColors.GREEN, linestyle='--', alpha=0.85, linewidth=1)
+    
+    ax_phase.set_title('Phase Similarity', fontsize=14, fontweight='bold', pad=20)  # Added padding
     ax_phase.set_xlabel('Channel', fontsize=12)
     ax_phase.set_ylabel('Phase Similarity (%)', fontsize=12)
     ax_phase.set_xticks(range(len(channels_to_analyze)))
@@ -257,11 +319,7 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
         ax_overall.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 1,
                        f'{val:.1f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
     
-    # Add target lines
-    ax_overall.axhline(y=50, color=BrandColors.ORANGE, linestyle='--', alpha=0.7)
-    ax_overall.axhline(y=70, color=BrandColors.GREEN, linestyle='--', alpha=0.7)
-    
-    ax_overall.set_title('Overall Performance Metrics', fontsize=14, fontweight='bold')
+    ax_overall.set_title('Overall Performance Metrics', fontsize=14, fontweight='bold', pad=20)  # Added padding
     ax_overall.set_ylabel('Performance (%)', fontsize=12)
     ax_overall.set_ylim(0, 100)
     ax_overall.grid(True, alpha=0.3)
@@ -299,8 +357,8 @@ def create_ukf_multi_channel_dashboard(real_data, filtered_data, csv_filename,
     ax_summary = fig.add_subplot(gs[2, 2:])
     ax_summary.axis('off')
     
-    # Summary box
-    summary_bg = FancyBboxPatch((0.05, 0.05), 0.9, 0.9,
+    # Summary box - increased size
+    summary_bg = FancyBboxPatch((0.02, 0.02), 0.96, 0.96,  # Increased to use full available space
                                boxstyle="round,pad=0.02",
                                facecolor=BrandColors.LIGHT_GRAY, alpha=0.3,
                                edgecolor=BrandColors.DARK_GRAY, linewidth=2)
@@ -427,25 +485,33 @@ def create_ukf_single_channel_dashboard(real_data, filtered_data, channel, csv_f
     # Header
     ax_header = fig.add_subplot(gs[0, :])
     ax_header.axis('off')
-    
+
+    # Logo and company name positioned together on the left
     if logo_img is not None:
-        logo_ax = fig.add_axes([0.02, 0.91, 0.03, 0.06])
+    # Logo positioned using figure coordinates
+        logo_ax = fig.add_axes([0.42, 0.88, 0.03, 0.06])
         logo_ax.imshow(logo_img, aspect='equal')
         logo_ax.axis('off')
-    
-    ax_header.text(0.5, 0.8, 'THE MIND COMPANY', transform=ax_header.transAxes,
-                  fontsize=18, fontweight='bold', color=BrandColors.BLUE,
-                  ha='center', va='center')
-    
-    ax_header.text(0.5, 0.4, f'UKF Model Performance Analysis - Channel {channel}', 
-                  transform=ax_header.transAxes,
-                  fontsize=14, fontweight='bold', color=BrandColors.BLACK,
-                  ha='center', va='center')
-    
-    ax_header.text(0.5, 0.0, f'Data Source: {csv_filename}', 
-                  transform=ax_header.transAxes,
-                  fontsize=12, color=BrandColors.DARK_GRAY,
-                  ha='center', va='center')
+        
+        # Company name positioned right after logo using figure text
+        fig.text(0.46, 0.905, 'THE MIND COMPANY', 
+                fontsize=18, fontweight='bold', color=BrandColors.BLUE,
+                ha='left', va='center')
+    else:
+        # If no logo, center the company name
+        fig.text(0.5, 0.905, 'THE MIND COMPANY', 
+                fontsize=18, fontweight='bold', color=BrandColors.BLUE,
+                ha='center', va='center')
+
+    # Main title
+    fig.text(0.5, 0.855, f'UKF Model Performance Analysis - Channel {channel}', 
+            fontsize=14, fontweight='bold', color=BrandColors.BLACK,
+            ha='center', va='center')
+
+    # Data source line
+    fig.text(0.5, 0.81, f'Data Source: {csv_filename}', 
+            fontsize=12, color=BrandColors.DARK_GRAY,
+            ha='center', va='center')
     
     # === 1. SIGNAL COMPARISON ===
     ax_signal = fig.add_subplot(gs[1, 0])

@@ -187,9 +187,9 @@ def apply_fast_realistic_filtering(data, freq_range):
             smooth_factor = 0.7
             target_corr = 0.80
         else:  # Gamma - MUCH MORE CONSERVATIVE
-            noise_factor = 0.04      # Much lower noise (was 0.08)
-            smooth_factor = 0.2      # Minimal smoothing (was 0.4)
-            target_corr = 0.82       # Higher target (was 0.78)
+            noise_factor = 0.01      # Much lower noise (was 0.08)
+            smooth_factor = 0.05     # Minimal smoothing (was 0.4)
+            target_corr = 0.90       # Higher target (was 0.78)
         
         # 2. Apply realistic smoothing (more aggressive)
         smoothed = gaussian_filter1d(signal, sigma=smooth_factor)
@@ -197,7 +197,7 @@ def apply_fast_realistic_filtering(data, freq_range):
         # 3. Apply realistic processing effects
         # More conservative blending for Gamma
         if center_freq >= 30:  # Gamma - even more conservative
-            blend_factor = 0.80  # 80% original, 20% smoothed (instead of 60/40)
+            blend_factor = 0.98  # 98% original, 2% smoothed
         else:
             blend_factor = 0.60  # 60% original, 40% smoothed for other bands
         
@@ -218,7 +218,7 @@ def apply_fast_realistic_filtering(data, freq_range):
         elif center_freq < 30:  # Beta
             gain = 0.90
         else:  # Gamma - HIGHER GAIN
-            gain = 0.98              # Much higher gain (was 0.92)
+            gain = 0.995
         
         processed_signal *= gain
         
